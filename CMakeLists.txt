@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
 
-#project(p7lib)
+project(p7lib)
 
 #>>Build options **********************************************************************
 option(P7_TESTS_BUILD "Build test" OFF)
 option(P7_EXAMPLES_BUILD "Build examples" OFF)
-set(P7_BUILD_SHARED OFF CACHE INTERNAL "Build shared library")
+option(P7_BUILD_SHARED "Build shared library" OFF)
 #<<Build options **********************************************************************
 
 include(CheckCXXCompilerFlag)
