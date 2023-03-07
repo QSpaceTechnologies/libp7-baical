@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //                                                                             /
-// 2012-2019 (c) Baical                                                        /
+// 2012-2020 (c) Baical                                                        /
 //                                                                             /
 // This library is free software; you can redistribute it and/or               /
 // modify it under the terms of the GNU Lesser General Public                  /
@@ -24,6 +24,5 @@ char (&GetCharArray(Type (&i_pArray)[i_szLength]))[i_szLength];
 #define LENGTH(i_pArray) (sizeof(GetCharArray(i_pArray)))
 
 #define MEMBER_SIZE(Structure, Memeber)         sizeof(((Structure*)0)->Memeber)
-
 
 #endif //LENGTH_H

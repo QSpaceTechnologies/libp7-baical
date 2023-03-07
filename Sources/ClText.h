@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //                                                                             /
-// 2012-2019 (c) Baical                                                        /
+// 2012-2020 (c) Baical                                                        /
 //                                                                             /
 // This library is free software; you can redistribute it and/or               /
 // modify it under the terms of the GNU Lesser General Public                  /
@@ -232,6 +232,7 @@ private:
     tXCHAR            *m_pMsgCur;
     size_t             m_szMsg;
     CClTextSink       *m_pSink;
+    tBOOL              m_bSinkExternal;
 
 public:
     CClText(tXCHAR **i_pArgs, tINT32 i_iCount);
@@ -261,7 +262,8 @@ public:
                        );
 
     tBOOL          Get_Info(sP7C_Info *o_pInfo);
-    tBOOL          Flush();
+    tBOOL          Close();
+    void           Flush();
 
 private:
     eClient_Status Parse_Buffer(tUINT8 *i_pBuffer, size_t  i_szBuffer);

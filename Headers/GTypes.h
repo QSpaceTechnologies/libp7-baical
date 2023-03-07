@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //                                                                             /
-// 2012-2019 (c) Baical                                                        /
+// 2012-2020 (c) Baical                                                        /
 //                                                                             /
 // This library is free software; you can redistribute it and/or               /
 // modify it under the terms of the GNU Lesser General Public                  /
@@ -18,8 +18,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 #ifndef GTYPE_H
 #define GTYPE_H
-
-#include "P7_Export.h"
 
 #if   defined(_M_X64)\
    || defined(__amd64__)\
@@ -44,6 +42,8 @@
 ////////////////////////////////////////////////////////////////////////////////
 //WINDOWS specific definitions & types
 #if defined(_WIN32) || defined(_WIN64)
+
+    #define G_OS_WINDOWS
     
     #if !defined(_WINSOCKAPI_)
         #include <winsock2.h>
@@ -60,10 +60,15 @@
 
     #define SHARED_EXT        L"dll"
 
+    #define P7_EXPORT __declspec(dllexport)
+
+    #define OS_PATH_SEPARATOR TM("\\")
+
 ////////////////////////////////////////////////////////////////////////////////
 //LINUX specific definitions & types
 #elif defined(__linux__)
     #define UTF8_ENCODING
+    #define G_OS_LINUX
 
     //Text marco, allow to use char automatically
     #define TM(i_pStr)    i_pStr
@@ -93,22 +98,29 @@
         #endif
     #endif
 
+    #define P7_EXPORT __attribute__ ((visibility ("default")))
+
+    #define OS_PATH_SEPARATOR TM("/")
 #endif
 
 #ifdef _MSC_VER
     #define PRAGMA_PACK_ENTER(x)  __pragma(pack(push, x))
     #define PRAGMA_PACK_EXIT()   __pragma(pack(pop))
     #define ATTR_PACK(x)
-    #define UNUSED_FUNC 
+    #define ATTR_ALIGN(x)
+    #define UNUSED_FUNC
 #else
     #define PRAGMA_PACK_ENTER(x) 
     #define PRAGMA_PACK_EXIT(x) 
     #define ATTR_PACK(x) __attribute__ ((aligned(x), packed))
+    #define ATTR_ALIGN(x) __attribute__ ((aligned(x)))
     #define UNUSED_FUNC __attribute__ ((unused))
 #endif
 
-#define TRUE         1
-#define FALSE        0
+#ifndef TRUE
+	#define TRUE     1
+	#define FALSE    0
+#endif
 
 #define UNUSED_ARG(x)        (void)(x)
 

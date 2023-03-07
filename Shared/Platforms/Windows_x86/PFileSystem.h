@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //                                                                             /
-// 2012-2019 (c) Baical                                                        /
+// 2012-2020 (c) Baical                                                        /
 //                                                                             /
 // This library is free software; you can redistribute it and/or               /
 // modify it under the terms of the GNU Lesser General Public                  /
@@ -180,7 +180,7 @@ public:
         if (i_dwDepth)
         {
             l_cSearch_Path.Set(i_pDirectory->Get());
-            l_cSearch_Path.Append(2, L"\\", i_pMask);
+            l_cSearch_Path.Append(1, L"\\*");
 
             l_hFind = FindFirstFileW(l_cSearch_Path.Get(), &l_sFind_Info);
 

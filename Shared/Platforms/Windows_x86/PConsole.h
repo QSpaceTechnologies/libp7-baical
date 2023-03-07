@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //                                                                             /
-// 2012-2019 (c) Baical                                                        /
+// 2012-2020 (c) Baical                                                        /
 //                                                                             /
 // This library is free software; you can redistribute it and/or               /
 // modify it under the terms of the GNU Lesser General Public                  /
@@ -19,6 +19,8 @@
 #pragma once
 
 #include <conio.h>
+#include "AList.h"
+#include "PString.h"
 #include "IConsole.h"
 #include "RBTree.h"
 

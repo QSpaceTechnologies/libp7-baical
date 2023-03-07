@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 //                                                                             /
-// 2012-2019 (c) Baical                                                        /
+// 2012-2020 (c) Baical                                                        /
 //                                                                             /
 // This library is free software; you can redistribute it and/or               /
 // modify it under the terms of the GNU Lesser General Public                  /
@@ -33,9 +33,14 @@
 
 #define THREAD_IDLE_TIMEOUT                                                (100)
 #define FREE_DATA_WAIT_TIMEOUT                                             (100)
-                                 
-#define THREAD_EXIT_SIGNAL                                     (MEVENT_SIGNAL_0)
-#define THREAD_DATA_SIGNAL                                 (MEVENT_SIGNAL_0 + 1)
+              
+enum eThreadsEvents
+{
+    eThreadEventExit = MEVENT_SIGNAL_0,
+    eThreadEventHasData,
+    eThreadEventDataFlush,
+    eThreadEventsCount = 3
+};
 
 #define DATA_FREE_SIGNAL                                       (MEVENT_SIGNAL_0)
 
@@ -494,6 +499,7 @@ tBOOL CTxtChannel::Format(sP7Trace_Data *i_pData, CClTextSink::sLog &o_rLog)
     int           l_iCount    = 0;
     tUINT8       *l_pExt      = (tUINT8*)i_pData + i_pData->sCommon.dwSize - 1;
     tUINT8        l_bCount    = l_pExt[0];
+    tDOUBLE       l_dbTimeDiff= 0.0;
 
     l_pDesc = m_cDesc[i_pData->wID];
     
@@ -575,7 +581,9 @@ tBOOL CTxtChannel::Format(sP7Trace_Data *i_pData, CClTextSink::sLog &o_rLog)
         o_rLog.szModuleName = 5;
     }
 
-    UnpackLocalTime(m_qwStreamTime + ((i_pData->qwTimer - m_qwTimer_Value) * TIME_SEC_100NS) / m_qwTimer_Frequency,
+    l_dbTimeDiff = (((tDOUBLE)i_pData->qwTimer - (tDOUBLE)m_qwTimer_Value) * (tDOUBLE)TIME_SEC_100NS) / (tDOUBLE)m_qwTimer_Frequency;
+
+    UnpackLocalTime(m_qwStreamTime + (tUINT64)l_dbTimeDiff,
                     o_rLog.dwYear,
                     o_rLog.dwMonth,
                     o_rLog.dwDay,
@@ -588,8 +596,8 @@ tBOOL CTxtChannel::Format(sP7Trace_Data *i_pData, CClTextSink::sLog &o_rLog)
                    );
 
 
-    o_rLog.qwRawTime       = m_qwStreamTime + ((i_pData->qwTimer - m_qwTimer_Value) * TIME_SEC_100NS) / m_qwTimer_Frequency;
-    o_rLog.qwRawTimeOffset = ((i_pData->qwTimer - m_qwTimeLast) * TIME_SEC_100NS) / m_qwTimer_Frequency;
+    o_rLog.qwRawTime       = m_qwStreamTime + (tUINT64)l_dbTimeDiff;
+    o_rLog.qwRawTimeOffset = (tUINT64)l_dbTimeDiff;
     o_rLog.pChannel        = m_pName;
     o_rLog.qwIndex         = i_pData->dwSequence;
     o_rLog.dwId            = i_pData->wID;
@@ -635,6 +643,7 @@ CClText::CClText(tXCHAR **i_pArgs, tINT32 i_iCount)
     , m_pMsgCur(NULL)
     , m_szMsg(0)
     , m_pSink(NULL)
+    , m_bSinkExternal(FALSE)
 {
     memset(m_pTxtCh, 0, sizeof(m_pTxtCh));
 
@@ -676,11 +685,14 @@ CClText::~CClText()
 {
     Uninit_Crash_Handler();
 
-    Flush();
+    Close();
 
     if (m_pSink)
     {
-        delete m_pSink;
+        if (!m_bSinkExternal)
+        {
+            delete m_pSink;
+        }
         m_pSink = NULL;
     }
 
@@ -826,6 +838,8 @@ eClient_Status CClText::Init_Pool(tXCHAR **i_pArgs,
          || (MIN_BUFFERS_COUNT > l_dwBuffers_Count)
        )
     {
+        P7_Set_Last_Error(eP7_Error_UserSettings);
+
         JOURNAL_ERROR(m_pLog, 
                       TM("Pool: Memory calculation error, buffer size = %d, buffers count = %d"),
                       l_dwBuffer_Size,
@@ -849,7 +863,8 @@ eClient_Status CClText::Init_Pool(tXCHAR **i_pArgs,
         }
         else
         {
-            JOURNAL_ERROR(m_pLog, TM("Pool: Memory calculation failed"));
+            P7_Set_Last_Error(eP7_Error_MemoryAllocation);
+            JOURNAL_ERROR(m_pLog, TM("Pool: Memory allocation failed"));
             l_eReturn = ECLIENT_STATUS_INTERNAL_ERROR;
             goto l_lblExit;
         }
@@ -859,6 +874,7 @@ eClient_Status CClText::Init_Pool(tXCHAR **i_pArgs,
     m_pChunk  = (tUINT8*)malloc(m_szChunkMax);
     if (NULL == m_pChunk)
     {
+        P7_Set_Last_Error(eP7_Error_MemoryAllocation);
         JOURNAL_ERROR(m_pLog, TM("Pool: Memory fragment allocation failed"));
         l_eReturn = ECLIENT_STATUS_INTERNAL_ERROR;
         goto l_lblExit;
@@ -871,6 +887,7 @@ eClient_Status CClText::Init_Pool(tXCHAR **i_pArgs,
 
     if (NULL == m_pMsg)
     {
+        P7_Set_Last_Error(eP7_Error_MemoryAllocation);
         JOURNAL_ERROR(m_pLog, TM("Pool: Memory message allocation failed"));
         l_eReturn = ECLIENT_STATUS_INTERNAL_ERROR;
         goto l_lblExit;
@@ -906,6 +923,21 @@ eClient_Status CClText::Init_Backend(tXCHAR **i_pArgs, tINT32 i_iCount)
         {
             m_pSink = static_cast<CClTextSink *>(new CClTextSyslog());
         }
+        //WARNING: this code is dedicated only for self-testing. 
+        //         USE THIS OPTION ONLY ON YOUR OWN RISK!
+        else if (0 == PStrICmp(l_pSink, TM("ExternalSinc")))
+        {
+            l_pSink = Get_Argument_Text_Value(i_pArgs, i_iCount, (tXCHAR*)TM("/P7.ExtAddr="));
+
+            if (l_pSink)
+            {
+                tUINT64 l_qwAddr = 0;
+                PStrScan(l_pSink, TM("%llX"), &l_qwAddr);
+                void *l_pAddr = (void*)l_qwAddr;
+                m_pSink = static_cast<CClTextSink *>(l_pAddr);
+                m_bSinkExternal = TRUE;
+            }
+        }
     }
 
     if (!m_pSink) 
@@ -935,14 +967,16 @@ eClient_Status CClText::Init_Thread(tXCHAR **i_pArgs,
 
     if (ECLIENT_STATUS_OK == l_eReturn)
     {
-        if (FALSE == m_cEvThread.Init(2, EMEVENT_SINGLE_AUTO, EMEVENT_MULTI))
+        if (FALSE == m_cEvThread.Init(eThreadEventsCount, EMEVENT_SINGLE_AUTO, EMEVENT_MULTI, EMEVENT_SINGLE_AUTO))
         {
+            P7_Set_Last_Error(eP7_Error_OS);
             l_eReturn = ECLIENT_STATUS_INTERNAL_ERROR;
             JOURNAL_ERROR(m_pLog, TM("Exit event wasn't created !"));
         }
 
         if (FALSE == m_cEvData.Init(1, EMEVENT_SINGLE_AUTO))
         {
+            P7_Set_Last_Error(eP7_Error_OS);
             l_eReturn = ECLIENT_STATUS_INTERNAL_ERROR;
             JOURNAL_ERROR(m_pLog, TM("Exit event wasn't created !"));
         }
@@ -957,6 +991,7 @@ eClient_Status CClText::Init_Thread(tXCHAR **i_pArgs,
                                      )
            )
         {
+            P7_Set_Last_Error(eP7_Error_OS);
             l_eReturn      = ECLIENT_STATUS_INTERNAL_ERROR;
             JOURNAL_ERROR(m_pLog, TM("Communication thread wasn't created !"));
         }
@@ -1232,7 +1267,7 @@ eClient_Status CClText::Sent(tUINT32          i_dwChannel_ID,
                                                   m_pBuffer_Current
                                                  );
                         m_pBuffer_Current = NULL;
-                        m_cEvThread.Set(THREAD_DATA_SIGNAL);
+                        m_cEvThread.Set(eThreadEventHasData);
                     }
                 }
             }
@@ -1251,7 +1286,7 @@ eClient_Status CClText::Sent(tUINT32          i_dwChannel_ID,
                                           m_pBuffer_Current
                                          );
                 m_pBuffer_Current = NULL;
-                m_cEvThread.Set(THREAD_DATA_SIGNAL);
+                m_cEvThread.Set(eThreadEventHasData);
             }
         } //while ( (m_pBuffer_Current) && (i_dwCount) )
     } //while (FALSE == l_bExit)
@@ -1290,7 +1325,7 @@ tBOOL CClText::Get_Info(sP7C_Info *o_pInfo)
 
 ////////////////////////////////////////////////////////////////////////////////
 //Flush
-tBOOL CClText::Flush()
+tBOOL CClText::Close()
 {
     tBOOL l_bStack_Trace = TRUE;
 
@@ -1300,18 +1335,21 @@ tBOOL CClText::Flush()
     l_sStatus.bConnected = FALSE;
     l_sStatus.dwResets   = 0;
 
-    LOCK_ENTER(m_hCS_Reg);
-    for (tUINT32 l_dwI = 0; l_dwI < USER_PACKET_CHANNEL_ID_MAX_SIZE; l_dwI++)
+    if (m_bFlushChannels)
     {
-        if (m_pChannels[l_dwI])
+        LOCK_ENTER(m_hCS_Reg);
+        for (tUINT32 l_dwI = 0; l_dwI < USER_PACKET_CHANNEL_ID_MAX_SIZE; l_dwI++)
         {
-            m_pChannels[l_dwI]->On_Flush(l_dwI, &l_bStack_Trace);
-            m_pChannels[l_dwI]->On_Status(l_dwI, &l_sStatus);
+            if (m_pChannels[l_dwI])
+            {
+                m_pChannels[l_dwI]->On_Flush(l_dwI, &l_bStack_Trace);
+                m_pChannels[l_dwI]->On_Status(l_dwI, &l_sStatus);
+            }
         }
+        LOCK_EXIT(m_hCS_Reg);
     }
-    LOCK_EXIT(m_hCS_Reg);
 
-    m_cEvThread.Set(THREAD_EXIT_SIGNAL);
+    m_cEvThread.Set(eThreadEventExit);
 
     if (m_bThread)
     {
@@ -1349,7 +1387,10 @@ tBOOL CClText::Flush()
 
     if (m_pSink)
     {
-        delete m_pSink;
+        if (!m_bSinkExternal)
+        {
+            delete m_pSink;
+        }
         m_pSink = NULL;
     }
 
@@ -1360,6 +1401,12 @@ tBOOL CClText::Flush()
     return TRUE;
 }//Flush
 
+////////////////////////////////////////////////////////////////////////////////
+//Flush
+void CClText::Flush()
+{
+    m_cEvThread.Set(eThreadEventDataFlush);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 //Parse_Buffer
@@ -1538,6 +1585,13 @@ eClient_Status CClText::Parse_Packet(tUINT32 i_dwChannel,
         l_pHeader->dwSubType = GET_EXT_HEADER_SUBTYPE(l_sRaw);
         l_pHeader->dwSize    = GET_EXT_HEADER_SIZE(l_sRaw);
 
+        l_szOffset += l_pHeader->dwSize;
+
+        if (EP7USER_TYPE_TRACE != l_pHeader->dwType)
+        {
+            continue;
+        }
+
         if (l_pChannel)
         {
             if (EP7TRACE_TYPE_DATA == l_pHeader->dwSubType)
@@ -1609,8 +1663,6 @@ eClient_Status CClText::Parse_Packet(tUINT32 i_dwChannel,
                 l_eReturn = ECLIENT_STATUS_INTERNAL_ERROR;
             }
         }
-
-        l_szOffset += l_pHeader->dwSize;
     }
 
     if (l_szOffset > i_szPacket)
@@ -1640,20 +1692,26 @@ void CClText::Routine()
     {
         l_dwSignal = m_cEvThread.Wait(THREAD_IDLE_TIMEOUT);
 
-        if (THREAD_EXIT_SIGNAL == l_dwSignal)
-        {
-            l_bExit = TRUE;
-        }
-        else if (THREAD_DATA_SIGNAL == l_dwSignal) //one buffer to write!
+        if (    (eThreadEventHasData == l_dwSignal) //one buffer to write!
+             || (MEVENT_TIME_OUT == l_dwSignal)
+           )
         {
             l_dwDumpTime = GetTickCount();
 
             ////////////////////////////////////////////////////////////////////
             //extract buffer
             LOCK_ENTER(m_hCS);
-            l_pEl     = m_cBuffer_Ready.Get_First();
-            l_pBuffer = m_cBuffer_Ready.Get_Data(l_pEl);
-            m_cBuffer_Ready.Del(l_pEl, FALSE);
+            l_pEl = m_cBuffer_Ready.Get_First();
+            if (l_pEl)
+            {
+                l_pBuffer = m_cBuffer_Ready.Get_Data(l_pEl);
+                m_cBuffer_Ready.Del(l_pEl, FALSE);
+            }
+            else
+            {
+                l_pBuffer = m_pBuffer_Current;
+                m_pBuffer_Current = NULL;
+            }
             LOCK_EXIT(m_hCS); 
 
             ////////////////////////////////////////////////////////////////////
@@ -1673,28 +1731,24 @@ void CClText::Routine()
                 LOCK_EXIT(m_hCS); 
             }
         }
-        else if (MEVENT_TIME_OUT == l_dwSignal)
+        else if (eThreadEventExit == l_dwSignal)
+        {
+            l_bExit = TRUE;
+        }
+        else if (eThreadEventDataFlush == l_dwSignal)
         {
             LOCK_ENTER(m_hCS);
-            l_pBuffer = m_pBuffer_Current;
-            m_pBuffer_Current = NULL;
-            LOCK_EXIT(m_hCS); 
-        
-            if (l_pBuffer)
+            if (    (m_pBuffer_Current)
+                 && (m_pBuffer_Current->szUsed)
+               )
             {
-                l_eStatus = Parse_Buffer(l_pBuffer->pBuffer, l_pBuffer->szUsed);
-        
-                LOCK_ENTER(m_hCS);
-                l_pBuffer->szUsed = 0;
-                m_cBuffer_Empty.Add_After(NULL, l_pBuffer);
-                if (m_bNoData)
-                {
-                    m_cEvData.Set(DATA_FREE_SIGNAL);
-                    m_bNoData = FALSE;
-                }
-                LOCK_EXIT(m_hCS); 
+                m_cBuffer_Ready.Add_After(m_cBuffer_Ready.Get_Last(), m_pBuffer_Current);
+                m_pBuffer_Current = NULL;
+                m_cEvThread.Set(eThreadEventHasData);
             }
+            LOCK_EXIT(m_hCS);
         }
+
 
         if (m_pSink)
         {
